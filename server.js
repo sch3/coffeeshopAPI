@@ -1,4 +1,4 @@
-//TODO Uninstall body parser if not used
+//TODO Uninstall async if not used
 var https = require('https');
 var http = require('http');
 var fs = require('fs');
@@ -182,33 +182,30 @@ app.delete('/delete/:id', function(request, response){
 //find nearest: Accepts an address and returns the closest coffee shop by straight line distance
 app.get('/findnearest/:address', function(request, response){
     // geocode address to get longitude, latitude
-    console.log(request.query);
     var limit = request.query.limit ? request.query.limit : 0;
-    console.log(request.params.address);
+    var responsejson = {}
     geocoder.geocode(request.params.address, function(error, res) {
         //if err probably not an actual address
         //tries to catch one or the other
         if(error||res[0]===undefined){
-            console.log("Did not find address");
-            response.status(404);
+            responsejson["error"] = ("Did not find address");
+            response.status(404).json(responsejson);
         }
         else{
             //geocoder 
-            console.log("Geocoded address");
-            console.log(res[0]['latitude']+ " "+res[0]['longitude']);
             //SELECT * AS distance FROM items ORDER BY ((location_lat-lat)*(location_lat-lat)) + ((location_lng - lng)*(location_lng - lng)) ASC
             //var sqldistance = "SELECT *, ACOS(SIN(RADIANS(:lat)) * SIN(RADIANS(lat)) + COS(RADIANS(:lat)) * COS(RADIANS(lat))* COS(RADIANS(lng - :lng))) * 3959 AS distance FROM places WHERE  distance <= 10 ORDER BY distance;"
             //var sqldistance = "SELECT *, ACOS(SIN(RADIANS(?)) * SIN(RADIANS(latitude)) + COS(RADIANS(?)) * COS(RADIANS(latitude))* COS(RADIANS(longitude - ?))) * 3959 AS distance FROM coffeeshops ORDER BY distance ASC;"
             //"SELECT * AS distance FROM items ORDER BY ((location_lat-lat)*(location_lat-lat)) + ((location_lng - lng)*(location_lng - lng)) ASC";
             //var sqldistance = "SELECT * FROM coffeeshops ORDER BY ((?-latitude)*(?-latitude)) + ((? - longitude)*(? - longitude)) ASC";
-            console.log(limit);
             // if limit is 0 or didn't exist, return just 1
             if(limit<1){
                 var sqldistance = "SELECT *, ((?-latitude)*(?-latitude)) + ((? - longitude)*(? - longitude)) AS distance FROM coffeeshops ORDER BY distance ASC";
                 var distancestmt = db.prepare(sqldistance);
                 distancestmt.get([res[0]['latitude'],res[0]['latitude'],res[0]['longitude'],res[0]['longitude']], function(err,row){
                     if(err){
-                        
+                        responsejson["error"] = err500;
+                        response.status(500).json(responsejson);
                     }else{
                         response.json(row);
                     }
@@ -219,7 +216,8 @@ app.get('/findnearest/:address', function(request, response){
                 var distancestmtlmt = db.prepare(sqldistancelimit);
                 distancestmtlmt.all([res[0]['latitude'],res[0]['latitude'],res[0]['longitude'],res[0]['longitude'],limit], function(err,row){
                     if(err){
-                        
+                        responsejson["error"] = err500;
+                        response.status(500).json();
                     }else{
                         response.json(row);
                     }
@@ -230,6 +228,7 @@ app.get('/findnearest/:address', function(request, response){
     // seach by closet longitude/latitude distance
     //return result
 });
+
 // parse out parameters from post body? potentially could use put request if feasible. Return error if identical id is attempted to one stored already. Should return id of created coffeeshop
 app.post('/create', function(request, response){
     var responsejson= {};
