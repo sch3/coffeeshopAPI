@@ -182,7 +182,7 @@ app.delete('/delete/:id', function(request, response){
 //find nearest: Accepts an address and returns the closest coffee shop by straight line distance
 app.get('/findnearest/:address', function(request, response){
     // geocode address to get longitude, latitude
-    var limit = request.query.limit ? request.query.limit : 0;
+    var limit = request.query.limit && request.query.limit>0 ? request.query.limit : 1;
     var responsejson = {}
     geocoder.geocode(request.params.address, function(error, res) {
         //if err probably not an actual address
@@ -192,29 +192,44 @@ app.get('/findnearest/:address', function(request, response){
             response.status(404).json(responsejson);
         }
         else{
-            //geocoder 
-            //SELECT * AS distance FROM items ORDER BY ((location_lat-lat)*(location_lat-lat)) + ((location_lng - lng)*(location_lng - lng)) ASC
-            //var sqldistance = "SELECT *, ACOS(SIN(RADIANS(:lat)) * SIN(RADIANS(lat)) + COS(RADIANS(:lat)) * COS(RADIANS(lat))* COS(RADIANS(lng - :lng))) * 3959 AS distance FROM places WHERE  distance <= 10 ORDER BY distance;"
-            //var sqldistance = "SELECT *, ACOS(SIN(RADIANS(?)) * SIN(RADIANS(latitude)) + COS(RADIANS(?)) * COS(RADIANS(latitude))* COS(RADIANS(longitude - ?))) * 3959 AS distance FROM coffeeshops ORDER BY distance ASC;"
-            //"SELECT * AS distance FROM items ORDER BY ((location_lat-lat)*(location_lat-lat)) + ((location_lng - lng)*(location_lng - lng)) ASC";
-            //var sqldistance = "SELECT * FROM coffeeshops ORDER BY ((?-latitude)*(?-latitude)) + ((? - longitude)*(? - longitude)) ASC";
-            // if limit is 0 or didn't exist, return just 1
-            if(limit<1){
-                var sqldistance = "SELECT *, ((?-latitude)*(?-latitude)) + ((? - longitude)*(? - longitude)) AS distance FROM coffeeshops ORDER BY distance ASC";
-                var distancestmt = db.prepare(sqldistance);
-                distancestmt.get([res[0]['latitude'],res[0]['latitude'],res[0]['longitude'],res[0]['longitude']], function(err,row){
-                    if(err){
-                        responsejson["error"] = err500;
-                        response.status(500).json(responsejson);
-                    }else{
-                        response.json(row);
-                    }
+            // seach by closet longitude/latitude distance
+            //return result
+            var sqldistancelimit = "SELECT *, ((?-latitude)*(?-latitude)) + ((? - longitude)*(? - longitude)) AS distance FROM coffeeshops ORDER BY distance ASC LIMIT ?";
+            var distancestmtlmt = db.prepare(sqldistancelimit);
+            distancestmtlmt.all([res[0]['latitude'],res[0]['latitude'],res[0]['longitude'],res[0]['longitude'],limit], function(err,row){
+                if(err){
+                    responsejson["error"] = err500;
+                    response.status(500).json();
+                }else{
+                    response.json(row);
+                }
+            });
+        }
+    });
+    
+});
+// find nearest using haversine formula
+app.get('/findnearesthaversine/:address', function(request, response){
+    var responsejson = {};
+    var limit = request.query.limit && request.query.limit>0 ? request.query.limit : 1;
+    geocoder.geocode(request.params.address, function(error, res) {
+        //if err probably not an actual address
+        //tries to catch one or the other
+        if(error||res[0]===undefined){
+            responsejson["error"] = ("Did not find address for haversine");
+            response.status(404).json(responsejson);
+        } else{
+            db.serialize(function() {
+                var temptablename = "findhaversine"+getRandomIntInclusive(0,1000000);
+                console.log(temptablename);
+                db.run("CREATE TABLE if not exists "+temptablename+" (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL,address TEXT NOT NULL,latitude INT NOT NULL,longitude INT NOT NULL, distance INT NOT NULL)");
+                var stmt = db.prepare("INSERT INTO "+temptablename+" VALUES (?,?,?,?,?,?)");
+                db.each("SELECT * FROM coffeeshops", function(err, row) {
+                    //console.log(res[0]['latitude']+ " "+ row.latitude+ " "+res[0]['longitude'] + " "+row.longitude);
+                    stmt.run(row['id'],row['name'],row['address'],row['latitude'],row['longitude'],getDistanceFromLatLonInKm(res[0]['latitude'],res[0]['longitude'],row.latitude,row.longitude));
                 });
-            } else{
-            // else return closest up to limit
-                var sqldistancelimit = "SELECT *, ((?-latitude)*(?-latitude)) + ((? - longitude)*(? - longitude)) AS distance FROM coffeeshops ORDER BY distance ASC LIMIT ?";
-                var distancestmtlmt = db.prepare(sqldistancelimit);
-                distancestmtlmt.all([res[0]['latitude'],res[0]['latitude'],res[0]['longitude'],res[0]['longitude'],limit], function(err,row){
+                var getstmt = db.prepare("SELECT * from "+temptablename+" ORDER BY distance ASC LIMIT ?");
+                getstmt.all([limit],function(err,row){
                     if(err){
                         responsejson["error"] = err500;
                         response.status(500).json();
@@ -222,13 +237,38 @@ app.get('/findnearest/:address', function(request, response){
                         response.json(row);
                     }
                 });
-            }
+                db.run("DROP TABLE "+temptablename);
+            });
         }
-    });
-    // seach by closet longitude/latitude distance
-    //return result
+     });
 });
+//Copied from: https://stackoverflow.com/questions/27928/calculate-distance-between-two-latitude-longitude-points-haversine-formula
+function getDistanceFromLatLonInKm(lat1,lon1,lat2,lon2) {
+  var R = 6371; // Radius of the earth in km
+  var dLat = deg2rad(lat2-lat1);  // deg2rad below
+  var dLon = deg2rad(lon2-lon1); 
+  var a = 
+    Math.sin(dLat/2) * Math.sin(dLat/2) +
+    Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) * 
+    Math.sin(dLon/2) * Math.sin(dLon/2)
+    ; 
+  var c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)); 
+  var d = R * c; // Distance in km
+  return d;
+}
 
+function deg2rad(deg) {
+  return deg * (Math.PI/180)
+}
+//https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Math/random
+function getRandomIntInclusive(min, max) {
+  min = Math.ceil(min);
+  max = Math.floor(max);
+  return Math.floor(Math.random() * (max - min + 1)) + min; //The maximum is inclusive and the minimum is inclusive 
+}
+app.get('/findnearestgoogle/:address', function(request, response){
+    
+});
 // parse out parameters from post body? potentially could use put request if feasible. Return error if identical id is attempted to one stored already. Should return id of created coffeeshop
 app.post('/create', function(request, response){
     var responsejson= {};
