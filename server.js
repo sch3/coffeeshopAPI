@@ -55,15 +55,12 @@ var server = http.createServer(app).listen(8080, function() {
          .on("data", function(data){
             //locations.csv final line does not read correctly in this library. this is an exception for that one or for faulty data
             if(data[1].trim().length>0){
-                //console.log("not empty");
                 stmt.run(data[0],data[1],data[2],data[3],data[4]);
             }else{
-                //console.log("empty")
                 var toinsert = data[0];
                 var inserted = 1;
                 for(var i =1;i<data.length;i++){
                     if(data[i].trim() && inserted <5){
-                        //console.log("inserted "+data[i].trim())
                         if(isNaN(data[i].trim())){}
                             toinsert = toinsert + ","+"\'"+data[i]+"\'";
                         }else{
@@ -185,6 +182,51 @@ app.delete('/delete/:id', function(request, response){
 //find nearest: Accepts an address and returns the closest coffee shop by straight line distance
 app.get('/findnearest/:address', function(request, response){
     // geocode address to get longitude, latitude
+    console.log(request.query);
+    var limit = request.query.limit ? request.query.limit : 0;
+    console.log(request.params.address);
+    geocoder.geocode(request.params.address, function(error, res) {
+        //if err probably not an actual address
+        //tries to catch one or the other
+        if(error||res[0]===undefined){
+            console.log("Did not find address");
+            response.status(404);
+        }
+        else{
+            //geocoder 
+            console.log("Geocoded address");
+            console.log(res[0]['latitude']+ " "+res[0]['longitude']);
+            //SELECT * AS distance FROM items ORDER BY ((location_lat-lat)*(location_lat-lat)) + ((location_lng - lng)*(location_lng - lng)) ASC
+            //var sqldistance = "SELECT *, ACOS(SIN(RADIANS(:lat)) * SIN(RADIANS(lat)) + COS(RADIANS(:lat)) * COS(RADIANS(lat))* COS(RADIANS(lng - :lng))) * 3959 AS distance FROM places WHERE  distance <= 10 ORDER BY distance;"
+            //var sqldistance = "SELECT *, ACOS(SIN(RADIANS(?)) * SIN(RADIANS(latitude)) + COS(RADIANS(?)) * COS(RADIANS(latitude))* COS(RADIANS(longitude - ?))) * 3959 AS distance FROM coffeeshops ORDER BY distance ASC;"
+            //"SELECT * AS distance FROM items ORDER BY ((location_lat-lat)*(location_lat-lat)) + ((location_lng - lng)*(location_lng - lng)) ASC";
+            //var sqldistance = "SELECT * FROM coffeeshops ORDER BY ((?-latitude)*(?-latitude)) + ((? - longitude)*(? - longitude)) ASC";
+            console.log(limit);
+            // if limit is 0 or didn't exist, return just 1
+            if(limit<1){
+                var sqldistance = "SELECT *, ((?-latitude)*(?-latitude)) + ((? - longitude)*(? - longitude)) AS distance FROM coffeeshops ORDER BY distance ASC";
+                var distancestmt = db.prepare(sqldistance);
+                distancestmt.get([res[0]['latitude'],res[0]['latitude'],res[0]['longitude'],res[0]['longitude']], function(err,row){
+                    if(err){
+                        
+                    }else{
+                        response.json(row);
+                    }
+                });
+            } else{
+            // else return closest up to limit
+                var sqldistancelimit = "SELECT *, ((?-latitude)*(?-latitude)) + ((? - longitude)*(? - longitude)) AS distance FROM coffeeshops ORDER BY distance ASC LIMIT ?";
+                var distancestmtlmt = db.prepare(sqldistancelimit);
+                distancestmtlmt.all([res[0]['latitude'],res[0]['latitude'],res[0]['longitude'],res[0]['longitude'],limit], function(err,row){
+                    if(err){
+                        
+                    }else{
+                        response.json(row);
+                    }
+                });
+            }
+        }
+    });
     // seach by closet longitude/latitude distance
     //return result
 });
