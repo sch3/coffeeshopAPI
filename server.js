@@ -1,4 +1,3 @@
-//TODO Uninstall async if not used
 var https = require('https');
 var http = require('http');
 var fs = require('fs');
@@ -21,6 +20,7 @@ app.use(express.json());
 // error messages or other constants
 var err500 = "Internal Server Error: Please try again later";
 var HashMap = require('hashmap');
+var distance = require('google-distance');
 var server = http.createServer(app).listen(8080, function() {
     //create db in memory and load via csv with columns id, name, address, latitude, longitude
     /**
@@ -266,10 +266,144 @@ function getRandomIntInclusive(min, max) {
   max = Math.floor(max);
   return Math.floor(Math.random() * (max - min + 1)) + min; //The maximum is inclusive and the minimum is inclusive 
 }
+function findDistance(originlat,originlon, destinationlat,destinationlon,callback){
+
+    console.log("finding distance between:"+originlat+ " "+originlon+" "+destinationlat+ " "+destinationlon);
+    distance.get(
+      {
+        origin: originlat+','+originlon,
+        destination: destinationlat+','+destinationlon
+      },
+      function(err, data) {
+        if (err) {
+            console.log("err:"+err);
+            console.log("Error distance");
+            callback(Number.POSITIVE_INFINITY);
+        }
+        else{
+            console.log("Found distance?")
+            //console.log(data);
+            console.log(data.distance);
+            callback(data.distance);
+        }
+
+    });
+}
 app.get('/findnearestgoogle/:address', function(request, response){
+    var responsejson = {};
+    var limit = request.query.limit && request.query.limit>0 ? request.query.limit : 1;
+    geocoder.geocode(request.params.address, function(error, res) {
+        //if err probably not an actual address
+        //tries to catch one or the other
+        if(error||res[0]===undefined){
+            responsejson["error"] = ("Did not find address for google distance api");
+            response.status(404).json(responsejson);
+        } else{
+            db.serialize(function() {
+                var temptablename = "findgoogle"+getRandomIntInclusive(0,1000000);
+                db.run("CREATE TABLE if not exists "+temptablename+" (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL,address TEXT NOT NULL,latitude INT NOT NULL,longitude INT NOT NULL, distance INT NOT NULL)");
+                var stmt = db.prepare("INSERT INTO "+temptablename+" VALUES (?,?,?,?,?,?)");
+                db.all("SELECT * FROM coffeeshops", function(err, rows) {
+                    async.each(rows, function(row, callback) {
+                      // Perform operation on file here.
+                      findDistance(res[0]["latitude"],res[0]["longitude"],row.latitude,row.longitude,function(result){
+                           console.log("result" +result.replace(" km",""));
+                           stmt.run(row['id'],row['name'],row['address'],row['latitude'],row['longitude'],result.replace(" km",""));
+                            callback();
+                        });
+                    },function(err){
+                        console.log("TEST DONE");
+                        var getstmt = db.prepare("SELECT * from "+temptablename+" ORDER BY distance ASC LIMIT ?");
+                        getstmt.all([limit],function(err,row){
+                            if(err){
+                                console.log(err);
+                                responsejson["error"] = err500;
+                                response.status(500).json();
+                            }else{
+                                console.log("no distance?");
+                                response.json(row);
+                            }
+                        });
+                        db.run("DROP TABLE "+temptablename);
+                    });
+                });
+                async.series([
+                    //Load user to get `userId` first
+                    function(callback) {
+                        
+                               //origin: res[0]["latitude"]+','+res[0]["longitude"],
+                            //destination: row.latitude+','+row.longitude
+                                //findDistance(res[0]["latitude"],res[0]["longitude"],row.latitude,row.longitude,function(result){
+                               //     console.log(result);
+                                //});
+                                
+                           //stmt.run(row['id'],row['name'],row['address'],row['latitude'],row['longitude'],dist);
+                            
+                            callback();
+                    },
+                    //Load posts (won't be called before task 1's "task callback" has been called)
+                    function(callback) {
+                        /**
+                        db.query('posts', {userId: userId}, function(err, posts) {
+                            if (err) return callback(err);
+                            locals.posts = posts;
+                            callback();
+                        });
+                        **/
+                        console.log("DONE");
+                        callback();
+                    }
+                ], function(err) { //This function gets called after the two tasks have called their "task callbacks"
+                    if (err) return next(err);
+                    //Here locals will be populated with `user` and `posts`
+                    //Just like in the previous example
+                    response.status(200);
+                });
+                /**
+                var temptablename = "findgoogle"+getRandomIntInclusive(0,1000000);
+                db.run("CREATE TABLE if not exists "+temptablename+" (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL,address TEXT NOT NULL,latitude INT NOT NULL,longitude INT NOT NULL, distance INT NOT NULL)");
+                var stmt = db.prepare("INSERT INTO "+temptablename+" VALUES (?,?,?,?,?,?)");
+                db.each("SELECT * FROM coffeeshops", function(err, row) {
+                    distance.get(
+                          {
+                            origin: res[0]["latitude"]+','+res[0]["longitude"],
+                            destination: row.latitude+','+row.longitude
+                          },
+                          function(err, data) {
+                            if (err) {
+                                console.log("err:"+err);
+                            }
+                            else{
+                                console.log(data.distance);
+                                stmt.run(row['id'],row['name'],row['address'],row['latitude'],row['longitude'],data.distance);
+                            }
+
+                        });
+                }, function(){
+                    console.log("What");
+                });
+                **/
+                /**
+                console.log("What");
+                var getstmt = db.prepare("SELECT * from "+temptablename+" ORDER BY distance ASC LIMIT ?");
+                getstmt.all([limit],function(err,row){
+                    if(err){
+                        console.log(err);
+                        responsejson["error"] = err500;
+                        response.status(500).json();
+                    }else{
+                        console.log("no distance?");
+                        response.json(row);
+                    }
+                });
+                **/
+                //db.run("DROP TABLE "+temptablename);
+            });
+        }
+     });
     
 });
-// parse out parameters from post body? potentially could use put request if feasible. Return error if identical id is attempted to one stored already. Should return id of created coffeeshop
+// Return error if identical id is attempted to one stored already. Should return id of created coffeeshop
 app.post('/create', function(request, response){
     var responsejson= {};
     if(request.body){
