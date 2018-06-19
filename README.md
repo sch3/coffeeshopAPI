@@ -62,6 +62,7 @@ Example: curl -X DELETE http://localhost:8080/delete/3
 ## Bugs and Issues
 * findgoogle is slow due to asynchronous google requests
 * csv file parsing mangles final row of given locations.csv. Had to create a recovery function for that row
+* Body parser prints out an exception trace to console if invalid json is passed in via a request. However, this will not stop server.
 ## Challenges and Future Features
 
 * Sqlite node js library has no math functions or function creation support. This made implementation of the more accurate distance endpoints more difficult than it should have been and less efficient.

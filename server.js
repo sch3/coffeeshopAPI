@@ -311,10 +311,12 @@ app.post('/create', function(request, response){
         // first param is null and increments automatically
 
         // latitude and longitude are necessary fields
+        var nametoinsert = request.body["name"] ? request.body["name"] : "";
+        var addresstoinsert = request.body["address"] ? request.body["address"] : "";
         var lat = request.body["latitude"];
         var lon = request.body["longitude"];
         if(lat && lon){
-            createstmt.run([request.body["name"],request.body["address"],request.body["latitude"],request.body["longitude"]], function(err){
+            createstmt.run([nametoinsert,addresstoinsert,request.body["latitude"],request.body["longitude"]], function(err){
                 if(err){
                     responsejson["error"] = err500;
                     response.status(500).json(responsejson);
